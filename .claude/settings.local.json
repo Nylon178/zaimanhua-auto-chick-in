@@ -3,7 +3,8 @@
     "allow": [
       "mcp__crawl4ai__html",
       "mcp__crawl4ai__screenshot",
-      "WebSearch"
+      "WebSearch",
+      "Bash(gh run view:*)"
     ]
   }
 }
