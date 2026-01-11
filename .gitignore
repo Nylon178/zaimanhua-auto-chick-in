@@ -43,6 +43,7 @@ error_screenshot.png
 commented_comics.txt
 
 # Test and debug scripts (may contain sensitive info)
+debug
 src/test_*.py
 src/explore_*.py
 src/check_*.py

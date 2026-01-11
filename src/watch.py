@@ -68,6 +68,25 @@ def extract_comic_info_from_url(url):
     return comic_id, chapter_id, comic_py
 
 
+def is_valid_chapter_url(url):
+    """检查章节 URL 是否有效（不含 undefined 等占位符）
+
+    某些漫画详情页的章节链接在 JS 渲染完成前包含 undefined 占位符，
+    需要过滤掉这些无效的 URL。
+    """
+    if not url or 'undefined' in url:
+        return False
+    comic_id, chapter_id, _ = extract_comic_info_from_url(url)
+    if not comic_id or not chapter_id:
+        return False
+    try:
+        int(comic_id)
+        int(chapter_id)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
 def save_reading_history(cookie_str, comic_id, chapter_id, page_num=1):
     """调用 API 保存阅读历史
 
@@ -370,7 +389,7 @@ def watch_comic(page, cookie_str, minutes=12):
             if not safe_goto(page, comic_url, timeout=30000):
                 failed_comics += 1
                 continue
-            page.wait_for_timeout(2000)
+            page.wait_for_timeout(3000)  # 增加等待时间，让 JS 渲染完成
 
             # 重新设置 localStorage
             check_login_status(page, cookie_str)
@@ -390,8 +409,9 @@ def watch_comic(page, cookie_str, minutes=12):
                 failed_comics += 1
                 continue
 
-            # 先提取所有章节 URL
+            # 先提取所有章节 URL（验证有效性）
             chapter_urls = []
+            skipped_urls = 0
             for chapter_link in chapter_links[:5]:
                 try:
                     href = chapter_link.get_attribute('href', timeout=5000)
@@ -405,9 +425,16 @@ def watch_comic(page, cookie_str, minutes=12):
                             full_url = href
                         else:
                             continue
-                        chapter_urls.append(full_url)
+                        # 验证 URL 是否有效（不含 undefined 等占位符）
+                        if is_valid_chapter_url(full_url):
+                            chapter_urls.append(full_url)
+                        else:
+                            skipped_urls += 1
                 except:
                     continue
+
+            if skipped_urls > 0:
+                print(f"  跳过 {skipped_urls} 个无效章节 URL")
 
             if not chapter_urls:
                 print("  未能提取章节URL，跳过...")

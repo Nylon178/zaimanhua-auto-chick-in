@@ -5,6 +5,16 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.2.3] - 2026-01-11
+
+### Fixed
+
+- 修复某些漫画翻章失败问题 (`src/watch.py`)
+  - 添加 `is_valid_chapter_url()` 函数验证章节 URL 有效性
+  - 过滤掉包含 `undefined` 占位符的无效章节 URL
+  - 增加等待时间（2s → 3s）让 JS 完成渲染
+  - 输出跳过的无效章节数量便于调试
+
 ## [1.2.2] - 2026-01-11
 
 ### Fixed
