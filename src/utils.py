@@ -355,10 +355,10 @@ def claim_rewards(page, cookie_str=None):
                     if task_id:
                         success, result = claim_task_reward(token, task_id)
                         if success:
-                            print(f"    ✓ 领取成功")
+                            print(f"    [OK] 领取成功")
                             claimed_count += 1
                         else:
-                            print(f"    ✗ 领取失败或已领取")
+                            print(f"    [SKIP] 领取失败或已领取")
                 elif status == 1:
                     print(f"  任务未完成: {task_name} (ID: {task_id}, status={status})")
 

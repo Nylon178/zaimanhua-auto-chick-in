@@ -1,11 +1,22 @@
-"""每日阅读自动化"""
+"""每日阅读自动化
+
+功能说明：
+- 自动阅读漫画并保存阅读记录
+- 完成任务 14（每日一读：每日阅读漫画）
+
+已知限制：
+- 任务 13（累计观看十分钟漫画）无法通过网页自动化完成
+  原因：阅读时长（ReadingDuration）仅由移动端 APP 内置 SDK 追踪上报，
+  网页端（包括移动端网页）的阅读行为不会更新服务器的阅读时长计数器。
+  经测试验证：无论在网页端阅读多长时间，ReadingDuration 始终为 0。
+"""
 import time
 import random
 import json
 import requests
 import urllib.parse
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
-from utils import get_all_cookies, create_browser_context, claim_rewards, init_localstorage, extract_user_info_from_cookies
+from utils import get_all_cookies, create_browser_context, claim_rewards, init_localstorage, extract_user_info_from_cookies, print_task_status
 
 # 配置
 MAX_RETRIES = 3
@@ -587,6 +598,11 @@ def run_watch(cookie_str, watch_minutes=None):
     if watch_minutes is None:
         watch_minutes = COMIC_WATCH_MINUTES
 
+    # 打印阅读前的任务状态
+    print_task_status(cookie_str, "阅读前")
+
+    result = {'watch': False, 'claim': False}
+
     with sync_playwright() as p:
         browser, context, page = create_browser_context(p, cookie_str)
 
@@ -594,19 +610,23 @@ def run_watch(cookie_str, watch_minutes=None):
             # 观看漫画 - 传入 cookie_str 用于设置 localStorage
             watch_result = watch_comic(page, cookie_str, watch_minutes)
 
-            # 领取积分
-            claim_result = claim_rewards(page)
+            # 领取积分 - 传入 cookie_str 用于 API 调用
+            claim_result = claim_rewards(page, cookie_str)
 
-            return {
+            result = {
                 'watch': watch_result,
                 'claim': claim_result
             }
 
         except Exception as e:
             print(f"任务执行出错: {e}")
-            return {'watch': False, 'claim': False}
         finally:
             browser.close()
+
+    # 打印阅读后的任务状态
+    print_task_status(cookie_str, "阅读后")
+
+    return result
 
 
 def main():

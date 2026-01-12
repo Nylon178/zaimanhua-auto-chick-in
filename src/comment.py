@@ -3,7 +3,15 @@ import os
 import time
 import random
 from playwright.sync_api import sync_playwright
-from utils import get_all_cookies, create_browser_context, claim_rewards, init_localstorage
+from utils import (
+    get_all_cookies,
+    create_browser_context,
+    claim_rewards,
+    init_localstorage,
+    get_task_list,
+    extract_tasks_from_response,
+    extract_user_info_from_cookies
+)
 
 # 配置
 MAX_RETRIES = 3
@@ -108,10 +116,14 @@ def post_daily_comment(page, cookie_str):
 
         # 访问漫画详情页
         page.goto(comic_url, wait_until='domcontentloaded')
-        page.wait_for_timeout(3000)
+        page.wait_for_timeout(2000)
 
-        # 再次设置 localStorage 确保登录状态
+        # 设置 localStorage 确保登录状态
         init_localstorage(page, cookie_str)
+
+        # 刷新页面使 localStorage 生效
+        page.reload(wait_until='domcontentloaded')
+        page.wait_for_timeout(2000)
         print(f"漫画页标题: {page.title()}")
 
         # 滚动到评论区
@@ -122,6 +134,21 @@ def post_daily_comment(page, cookie_str):
         comment_input = page.query_selector("textarea.el-textarea__inner")
         if not comment_input:
             comment_input = page.query_selector("textarea[placeholder*='发表']")
+
+        if not comment_input:
+            print("未找到评论输入框，尝试更多选择器...")
+            # 尝试更多选择器
+            selectors = [
+                "textarea",
+                ".comment-input textarea",
+                ".pl_input textarea",
+                "[class*='comment'] textarea",
+            ]
+            for sel in selectors:
+                comment_input = page.query_selector(sel)
+                if comment_input:
+                    print(f"  使用选择器找到: {sel}")
+                    break
 
         if comment_input:
             # 随机选择评论内容
@@ -136,13 +163,98 @@ def post_daily_comment(page, cookie_str):
                 publish_btn = page.query_selector(".new_pl_submit a")
             if not publish_btn:
                 publish_btn = page.query_selector("a:has-text('发布')")
+            if not publish_btn:
+                # 尝试更多选择器
+                btn_selectors = [
+                    "button:has-text('发布')",
+                    ".submit-btn",
+                    "[class*='submit']",
+                    "button[type='submit']",
+                ]
+                for sel in btn_selectors:
+                    publish_btn = page.query_selector(sel)
+                    if publish_btn:
+                        print(f"  使用备用选择器找到发布按钮: {sel}")
+                        break
 
             if publish_btn:
                 print("点击发布按钮...")
                 publish_btn.click()
                 page.wait_for_timeout(3000)
-                print("评论发布成功！")
-                # 记录已评论的漫画
+
+                # 检查是否有错误提示（如需要绑定手机）
+                error_selectors = [
+                    ".el-message--error",
+                    ".error-toast",
+                    ".el-message-box__message",
+                    ".el-message",
+                    "[class*='error']",
+                    "[class*='warn']",
+                    ".toast",
+                ]
+                for selector in error_selectors:
+                    try:
+                        error_els = page.query_selector_all(selector)
+                        for error_el in error_els:
+                            if error_el and error_el.is_visible():
+                                error_text = error_el.inner_text()
+                                if error_text.strip():
+                                    print(f"  检测到提示: {error_text}")
+                    except:
+                        pass
+
+                # 通过任务 API 验证评论是否成功
+                user_info = extract_user_info_from_cookies(cookie_str)
+                token = user_info.get('token') if isinstance(user_info, dict) else None
+
+                if token:
+                    print("验证评论任务状态...")
+                    task_result = get_task_list(token)
+                    if task_result and task_result.get('errno') == 0:
+                        tasks = extract_tasks_from_response(task_result)
+                        print(f"  获取到 {len(tasks)} 个任务")
+                        # 查找评论任务（任务ID=14 或 任务名称包含"评论"/"一评"）
+                        comment_task_found = False
+                        for task in tasks:
+                            task_id = task.get('id') or task.get('taskId')
+                            task_name = task.get('title') or task.get('name') or task.get('taskName', '')
+                            # 任务ID 14 是"每日一评"（评论任务）
+                            is_comment_task = (task_id == 14 or
+                                             '评论' in str(task_name) or
+                                             '一评' in str(task_name))
+                            if is_comment_task:
+                                comment_task_found = True
+                                status = task.get('status', 0)
+                                print(f"  找到评论任务: ID={task_id}, 名称={task_name}, 状态={status}")
+                                if status == 3:  # 已完成
+                                    print(f"  评论任务验证成功！状态: 已完成")
+                                    save_commented_comic(comic_id)
+                                    return True
+                                else:
+                                    print(f"  评论任务状态: 未完成，将重试...")
+                                    return False
+                        if not comment_task_found:
+                            print("  未找到评论任务(ID=14)")
+                    else:
+                        print(f"  获取任务列表失败")
+                else:
+                    print("  无法获取token，跳过API验证")
+
+                # 如果无法验证任务状态，检查页面错误提示
+                error_selectors = [".el-message--error", ".error-toast", ".el-message-box__message"]
+                for selector in error_selectors:
+                    error_el = page.query_selector(selector)
+                    if error_el:
+                        try:
+                            if error_el.is_visible():
+                                error_text = error_el.inner_text()
+                                print(f"检测到错误提示: {error_text}")
+                                return False
+                        except:
+                            pass
+
+                # 如果没有错误提示且无法验证API，假设成功（兼容旧行为）
+                print("评论发布成功！（未通过API验证）")
                 save_commented_comic(comic_id)
                 return True
             else:
@@ -167,7 +279,7 @@ def run_comment(cookie_str):
             comment_result = post_daily_comment(page, cookie_str)
 
             # 领取积分
-            claim_result = claim_rewards(page)
+            claim_result = claim_rewards(page, cookie_str)
 
             return {
                 'comment': comment_result,
